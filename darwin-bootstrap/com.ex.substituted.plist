@@ -13,6 +13,8 @@
 	<string>com.ex.substituted</string>
 	<key>Program</key>
 	<string>/Library/Substitute/Helpers/substituted</string>
+	<key>RunAtLoad</key>
+	<true/>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>_MSSafeMode</key>
@@ -20,4 +22,3 @@
 	</dict>
 </dict>
 </plist>
-

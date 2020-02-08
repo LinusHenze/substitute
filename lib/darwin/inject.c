@@ -13,7 +13,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-extern const struct dyld_all_image_infos *dyld_get_all_image_infos();
+extern const struct dyld_all_image_infos *(*dyld_get_all_image_infos)();
 
 #define DEFINE_STRUCTS
 

@@ -7,6 +7,8 @@
 #include "substitute-internal.h"
 #include "darwin/read.h"
 
+kern_return_t mach_vm_region(vm_map_t target_task, mach_vm_address_t *address, mach_vm_size_t *size, vm_region_flavor_t flavor, vm_region_info_t info, mach_msg_type_number_t *infoCnt, mach_port_t *object_name);
+
 struct interpose_state {
     size_t nsegments;
     segment_command_x **segments;
@@ -93,6 +95,46 @@ static int try_bind_section(void *bind, size_t size,
                                         (intptr_t) addend;
                         uintptr_t old;
                         void *p = (void *) (segment + offset);
+                        
+                        mach_port_t object_name;
+                        mach_vm_size_t regionSize = 0;
+                        vm_region_basic_info_data_64_t info_p = {0};
+                        mach_msg_type_number_t cnt = VM_REGION_BASIC_INFO_COUNT_64;
+                        mach_vm_address_t address_info = (mach_vm_address_t) p;
+                        kern_return_t kr = mach_vm_region(mach_task_self(), &address_info, &regionSize, VM_REGION_BASIC_INFO_64, (vm_region_info_t) &info_p, &cnt, &object_name);
+                        
+                        if (kr != KERN_SUCCESS) {
+                            substitute_panic("vm_region failed!\n");
+                        }
+                        
+                        kr = vm_protect(mach_task_self(), (uint64_t) p, 8, FALSE, VM_PROT_READ | VM_PROT_WRITE);
+                        if (kr == KERN_PROTECTION_FAILURE) {
+                            kr = vm_protect(mach_task_self(), (uint64_t) p, 8, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+                        }
+                        
+                        if (kr != KERN_SUCCESS) {
+                            substitute_panic("vm_protect failed!\n");
+                        }
+                        
+                        regionSize = 0;
+                        vm_region_basic_info_data_64_t info_new = {0};
+                        cnt = VM_REGION_BASIC_INFO_COUNT_64;
+                        address_info = (mach_vm_address_t) new;
+                        kr = mach_vm_region(mach_task_self(), &address_info, &regionSize, VM_REGION_BASIC_INFO_64, (vm_region_info_t) &info_new, &cnt, &object_name);
+                        
+                        if (kr != KERN_SUCCESS) {
+                            substitute_panic("vm_region failed!\n");
+                        }
+                        
+                        kr = vm_protect(mach_task_self(), (uint64_t) new, 8, FALSE, VM_PROT_READ | VM_PROT_WRITE);
+                        if (kr == KERN_PROTECTION_FAILURE) {
+                            kr = vm_protect(mach_task_self(), (uint64_t) new, 8, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+                        }
+                        
+                        if (kr != KERN_SUCCESS) {
+                            substitute_panic("vm_protect failed!\n");
+                        }
+                        
                         switch (type) {
                         case BIND_TYPE_POINTER: {
                             old = __atomic_exchange_n((uintptr_t *) p,
@@ -130,6 +172,16 @@ static int try_bind_section(void *bind, size_t size,
                         if (h->old_ptr)
                             *(uintptr_t *) h->old_ptr = old - addend;
                         offset += stride;
+                        
+                        kr = vm_protect(mach_task_self(), (uint64_t) p, 8, FALSE, info_p.protection);
+                        if (kr != KERN_SUCCESS) {
+                            substitute_panic("vm_protect failed!\n");
+                        }
+                        
+                        kr = vm_protect(mach_task_self(), (uint64_t) new, 8, FALSE, info_new.protection);
+                        if (kr != KERN_SUCCESS) {
+                            substitute_panic("vm_protect failed!\n");
+                        }
                     }
                     break;
                 }

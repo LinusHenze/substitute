@@ -22,6 +22,9 @@ settings.add_setting_option('install_name', '--install-name', 'LC_ID_DYLIB',
 ldid_tool = mconfig.CLITool('ldid', ['ldid'], 'LDID', settings.host_machine(), settings.host_machine().toolchains())
 ldid_tool.optional_nocheck()
 
+codesign = mconfig.CLITool('codesign', ['codesign'], 'codesign', settings.host_machine(), settings.host_machine().toolchains())
+codesign.optional_nocheck()
+
 asm_archs = [
     ('x86_64', []),
     ('i386', []),
@@ -74,10 +77,13 @@ settings.host.ldflags = ['-dead_strip'] + settings.host.ldflags
 # todo make overridable?
 cc_argv = c.cc.argv()
 if 'armv7' in cc_argv or 'arm64' in cc_argv or 'arm64e' in cc_argv:
-    settings.modify_link = lambda env: (
-        env['cmds'].append(ldid_tool.argv() + ['-S'+settings.src+'/ent.plist', env['outs'][0]]),
+    def modify_link(env):
+        try:
+            env['cmds'].append(codesign.argv() + ['-s', '-', '-f', '--entitlements', settings.src+'/ent.plist', env['outs'][0]])
+        except mconfig.DependencyNotFoundException:
+            env['cmds'].append(ldid_tool.argv() + ['-S'+settings.src+'/ent.plist', env['outs'][0]])
         env['ins'].append(settings.src+'/ent.plist')
-    )
+    settings.modify_link = modify_link
 
 settings.host.debug_info = True
 settings.c_includes = ['(src)/lib', '(src)/substrate', '(src)/vendor']

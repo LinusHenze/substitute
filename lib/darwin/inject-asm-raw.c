@@ -36,6 +36,14 @@ __attribute__((fastcall))
 #endif
 void entry(struct baton *baton) {
     int pt = 0;
+#ifdef __arm64__
+    // We need to initialize thread local storage.
+    // Currently only for arm64, but I won't support
+    // 32 bit anyway.
+    long thLocalSt = (long) baton->path - 0x1000;
+    thLocalSt &= ~0x7ULL;
+    __asm__ __volatile__("mov x0, %0\n mov x3, #0x2\n mov x16, #0x80000000\n svc #0x80\n" : : "r"(thLocalSt) : "x0", "x3", "x16");
+#endif
     baton->pthread_create(&pt, 0, (void *) bsd_thread_func, baton);
     baton->pthread_detach(pt);
     manual_bsdthread_terminate(0, 0, 0, baton->sem_port);

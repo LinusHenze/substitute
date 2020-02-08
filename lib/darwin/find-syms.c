@@ -25,6 +25,7 @@ const struct dyld_all_image_infos *(*dyld_get_all_image_infos)();
 static pthread_once_t dyld_inspect_once = PTHREAD_ONCE_INIT;
 /* and its fruits: */
 static uintptr_t (*ImageLoaderMachO_getSlide)(void *);
+static uintptr_t (*MachOLoaded_getSlide)(void *);
 static const struct mach_header *(*ImageLoaderMachO_machHeader)(void *);
 static bool (*dyld_validImage)(void *);
 uintptr_t (*ImageLoaderMegaDylib_getSlide)(void*);
@@ -168,7 +169,10 @@ static const struct dyld_cache_header *get_cur_shared_cache_hdr() {
     if (!dch) {
         /* race is OK */
         uint64_t start_address = 0;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         if (syscall(294, &start_address)) /* shared_region_check_np */
+#pragma clang diagnostic pop
             dch = (void *) 1;
         else
             dch = (void *) (uintptr_t) start_address;
@@ -297,23 +301,27 @@ static void inspect_dyld() {
     const struct dyld_all_image_infos *aii = dyld_get_all_image_infos();
     const void *dyld_hdr = aii->dyldImageLoadAddress;
 
-    const char *names[6] = { "__ZNK16ImageLoaderMachO8getSlideEv",
+    const char *names[8] = { "__ZNK16ImageLoaderMachO8getSlideEv",
                              "__ZNK16ImageLoaderMachO10machHeaderEv",
+                             "__ZN4dyld10validImageEPK11ImageLoader",
+                             "__ZNK5dyld311MachOLoaded8getSlideEv",
                              "__ZN4dyldL20sAllCacheImagesProxyE",
                              "__ZN20ImageLoaderMegaDylib13isCacheHandleEPvPjPh",
                              "__ZNK20ImageLoaderMegaDylib8getSlideEv",
                              "__ZNK20ImageLoaderMegaDylib20getIndexedMachHeaderEj" };
-    void *syms[6];
+    void *syms[8];
     intptr_t dyld_slide = -1;
-    find_syms_raw(dyld_hdr, &dyld_slide, names, syms, 6);
-    if (!syms[0] || !syms[1])
+    find_syms_raw(dyld_hdr, &dyld_slide, names, syms, 8);
+    if (!syms[0] || !syms[1] || !syms[2])
         substitute_panic("couldn't find ImageLoader methods\n");
     ImageLoaderMachO_getSlide = syms[0];
     ImageLoaderMachO_machHeader = syms[1];
-    dyld_sAllCacheImagesProxy = syms[2];
-    ImageLoaderMegaDylib_isCacheHandle = syms[3];
-    ImageLoaderMegaDylib_getSlide = syms[4];
-    ImageLoaderMegaDylib_getIndexedMachHeader = syms[5];
+    dyld_validImage = syms[2];
+    MachOLoaded_getSlide = syms[3];
+    dyld_sAllCacheImagesProxy = syms[4];
+    ImageLoaderMegaDylib_isCacheHandle = syms[5];
+    ImageLoaderMegaDylib_getSlide = syms[6];
+    ImageLoaderMegaDylib_getIndexedMachHeader = syms[7];
 }
 
 /* 'dlhandle' keeps the image alive */
@@ -336,8 +344,14 @@ struct substitute_image *substitute_open_image(const char *filename) {
         slide = ImageLoaderMegaDylib_getSlide(*dyld_sAllCacheImagesProxy);
         image_header = ImageLoaderMegaDylib_getIndexedMachHeader(*dyld_sAllCacheImagesProxy, index);
     } else {
-        image_header = ImageLoaderMachO_machHeader(image);
-      slide = ImageLoaderMachO_getSlide(image);
+        if (dyld_validImage(image)) {
+            image_header = ImageLoaderMachO_machHeader(image);
+            slide = ImageLoaderMachO_getSlide(image);
+        } else {
+            image = (void*)((((uintptr_t)dlhandle) & (-2)) << 5);
+            image_header = image;
+            slide = MachOLoaded_getSlide(image);
+        }
     }
 
     struct substitute_image *im = malloc(sizeof(*im));
