@@ -60,6 +60,10 @@ void WRAP(xpc_array_set_string, (xxpc_object_t, size_t, const char *));
 OS_OBJECT_RETURNS_RETAINED
 xxpc_object_t WRAP(xpc_dictionary_create, (const char *const *,
                                            const xxpc_object_t *, size_t));
+
+int WRAP(xpc_pipe_routine, (xxpc_object_t xpc_pipe, xxpc_object_t inDict, xxpc_object_t __strong *out));
+xxpc_object_t WRAP(xpc_dictionary_get_dictionary, (xxpc_object_t xdict, const char *key));
+
 OS_OBJECT_RETURNS_RETAINED
 xxpc_object_t WRAP(xpc_dictionary_create_reply, (xxpc_object_t));
 bool WRAP(xpc_dictionary_get_bool, (xxpc_object_t, const char *));

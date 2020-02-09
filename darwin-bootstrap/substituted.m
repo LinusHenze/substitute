@@ -24,6 +24,24 @@ static enum {
 static NSSet *g_springboard_loaded_dylibs;
 static NSSet *g_springboard_last_loaded_dylibs;
 
+struct _os_alloc_once_s {
+    long once;
+    void *ptr;
+};
+extern struct _os_alloc_once_s _os_alloc_once_table[];
+
+struct xpc_global_data {
+    uint64_t    a;
+    uint64_t    xpc_flags;
+    mach_port_t    task_bootstrap_port;  /* 0x10 */
+#ifndef _64
+    uint32_t    padding;
+#endif
+    xxpc_object_t    xpc_bootstrap_pipe;   /* 0x18 */
+    // and there's more, but you'll have to wait for MOXiI 2 for those...
+    // ...
+};
+
 static bool load_state() {
     int fd = shm_open("com.ex.substituted.state", O_RDONLY);
     if (fd == -1)
@@ -138,6 +156,37 @@ static double id_to_double(id o) {
 
 static xxpc_object_t nsstring_to_xpc(NSString *in) {
     return xxpc_string_create([in cStringUsingEncoding:NSUTF8StringEncoding]);
+}
+
+// Thanks to Jonathan Levin
+// Most code in exitStateOfService has been copied from jlaunchctl
+// http://newosxbook.com/articles/jlaunchctl.html
+int exitStateOfService(char *service) {
+    xxpc_object_t dict = xxpc_dictionary_create(NULL, NULL, 0);
+    
+    xxpc_dictionary_set_uint64(dict, "subsystem", 3);
+    xxpc_dictionary_set_uint64(dict, "handle", 0);
+    xxpc_dictionary_set_uint64(dict, "routine", 0x32f);
+    xxpc_dictionary_set_uint64(dict, "type", 1);
+    xxpc_dictionary_set_string(dict, "name", service);
+    
+    struct xpc_global_data  *xpc_gd  = (struct xpc_global_data *)  _os_alloc_once_table[1].ptr;
+    
+    xxpc_object_t outDict = NULL;
+    
+    int64_t res = xxpc_pipe_routine(xpc_gd->xpc_bootstrap_pipe, dict, &outDict);
+    if (res != 0) {
+        return 0;
+    }
+    
+    res = xxpc_dictionary_get_int64(outDict, "error");
+    if (res != 0) {
+        return 0;
+    }
+    
+    xxpc_object_t svcDict = xxpc_dictionary_get_dictionary(outDict, "service");
+    
+    return xxpc_dictionary_get_int64(svcDict, "LastExitStatus");
 }
 
 @interface PeerHandler : NSObject {
@@ -283,37 +332,15 @@ enum convert_filters_ret {
 }
 
 - (void)updateSpringBoardNeedsSafeThen:(void (^)())then {
-    xxpc_object_t inn = xxpc_dictionary_create(NULL, NULL, 0);
-    xxpc_dictionary_set_string(inn, "com.ex.substitute.hook-operation",
-                               "bundleid-to-fate");
-    xxpc_dictionary_set_string(inn, "bundleid", "com.apple.SpringBoard");
-
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
                    ^{
         int to_set = REALLY_SAFE;
-        xxpc_object_t out = NULL;
-        vproc_swap_complex(NULL, 99999, inn, &out);
-        if (!out) {
-            NSLog(@"couldn't talk to launchd :( - assume worst case scenario");
-            goto out;
+        bool crashed = false;
+        
+        int exitState = exitStateOfService("com.apple.SpringBoard");
+        if (exitState != 0 && exitState != SIGTERM) {
+            crashed = true;
         }
-        __unsafe_unretained xxpc_type_t type = xxpc_get_type(out);
-        if (xxpc_get_type(out) != XXPC_TYPE_DICTIONARY)
-            goto bad_data;
-
-        bool crashed;
-        __unsafe_unretained xxpc_object_t fate =
-            xxpc_dictionary_get_value(out, "fate");
-        if (!fate) {
-            /* no record yet */
-            crashed = false;
-        } else if (xxpc_get_type(fate) == XXPC_TYPE_INT64) {
-            int stat = (int) xxpc_int64_get_value(fate);
-            crashed = WIFSIGNALED(stat) && WTERMSIG(stat) != SIGTERM;
-        } else {
-            goto bad_data;
-        }
-
 
         if (crashed) {
             if (g_springboard_needs_safe) {
@@ -326,12 +353,7 @@ enum convert_filters_ret {
         } else {
             to_set = NO_SAFE;
         }
-        goto out;
 
-    bad_data:
-        NSLog(@"bad data %@ from launchd!?", out);
-        goto out;
-    out:
         dispatch_async(dispatch_get_main_queue(), ^{
             g_springboard_needs_safe = to_set;
             then();

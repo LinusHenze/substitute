@@ -2,12 +2,16 @@
 #include <objc/runtime.h>
 #include <notify.h>
 #include <dispatch/dispatch.h>
+#define API_UNAVAILABLE(...)
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #include <mach-o/dyld.h>
 
+#pragma clang diagnostic ignored "-Weverything"
+
 static Class SpringBoard, SBApplicationController;
 static bool g_did_activate_safetydance;
+static id g_sb = NULL;
 
 @interface _SBApplicationController
 - (id)applicationWithBundleIdentifier:(NSString *)identifier;
@@ -26,59 +30,23 @@ static bool g_did_activate_safetydance;
 - (void)activate;
 @end
 
-static bool detect_substrate_safe_mode() {
-    /* Defer to Substrate's safe mode.  On my device, this doesn't seem to be
-     * strictly necessary, because for whatever reason SafetyDance doesn't get
-     * launched when MobileSafety is loaded, but let's not rely on that
-     * quirk... */
-    for (uint32_t i = 0, count = _dyld_image_count();
-         i < count; i++) {
-        const char *name = _dyld_get_image_name(i);
-        if (name && strstr(name, "MobileSafety"))
-            return true;
+void launchSafety() {
+    BOOL res = [g_sb launchApplicationWithIdentifier: @"org.coolstar.SafeMode" suspended:NO];
+    if (!res) {
+        NSLog(@"substitute safe mode: Safety not yet launched.\n");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            launchSafety();
+        });
+    } else {
+        NSLog(@"substitute safe mode: Safety launched.\n");
     }
-    return false;
 }
 
 void (*old_applicationDidFinishLaunching)(id, SEL, id);
 static void my_applicationDidFinishLaunching(id self, SEL sel, id app) {
-    old_applicationDidFinishLaunching(self, sel, app);
-    if (detect_substrate_safe_mode()) {
-        NSLog(@"Deferring to Substrate's safe mode.");
-        return;
-    }
-    id controller = [SBApplicationController sharedInstanceIfExists];
-    if (!controller) {
-        NSLog(@"substitute safe mode: sharedInstanceIfExists => nil!");
-        return;
-    }
-    NSString *bundle_id = @"com.ex.SafetyDance";
-    id sbapp = [controller applicationWithBundleIdentifier:bundle_id];
-    if (!sbapp) {
-        NSLog(@"substitute safe mode: no app with bundle ID '%@' - installation messed up?",
-              bundle_id);
-        return;
-    }
-    [sbapp setFlag:1 forActivationSetting:1]; /* noAnimate */
-    /* [sbapp setFlag:1 forActivationSetting:5]; */ /* seo */
-    [self launchApplicationWithIdentifier:bundle_id suspended:NO];
+    g_sb = self;
     g_did_activate_safetydance = true;
-}
-
-BOOL (*old_handleDoubleHeightStatusBarTap)(id, SEL, int64_t);
-static BOOL my_handleDoubleHeightStatusBarTap(id self, SEL sel, int64_t number) {
-    if (g_did_activate_safetydance && number == 202) {
-        NSString *bundle_id = @"com.ex.SafetyDance";
-        id controller = [SBApplicationController sharedInstanceIfExists];
-        id sbapp = [controller applicationWithBundleIdentifier:bundle_id];
-        if ([sbapp isRunning]) {
-            NSLog(@"activate!");
-            [sbapp setFlag:1 forActivationSetting:20]; /* fromBanner */
-            [self launchApplicationWithIdentifier:bundle_id suspended:NO];
-            return YES;
-        }
-    }
-    return old_handleDoubleHeightStatusBarTap(self, sel, number);
+    old_applicationDidFinishLaunching(self, sel, app);
 }
 
 __attribute__((constructor))
@@ -98,7 +66,14 @@ static void init() {
         "com.ex.substitute.safemode-restart-springboard-plz",
         &notify_token, dispatch_get_main_queue(), ^(int tok) {
             id sb = [UIApplication sharedApplication];
-            [sb relaunchSpringBoard];
+            //[sb relaunchSpringBoard];
+        CFDictionaryRef dict = (__bridge CFDictionaryRef)  @{
+            (__bridge NSString*) kCFUserNotificationAlertTopMostKey: @1,
+            (__bridge NSString*) kCFUserNotificationAlertHeaderKey: @"Title",
+            (__bridge NSString*) kCFUserNotificationAlertMessageKey: @"Message"
+        };
+        SInt32 err = 0;
+        CFUserNotificationRef notif = CFUserNotificationCreate(NULL, 0, kCFUserNotificationPlainAlertLevel, &err, dict);
         }
     );
 
@@ -114,6 +89,5 @@ static void init() {
 
     HOOK(SpringBoard, applicationDidFinishLaunching:,
          applicationDidFinishLaunching);
-    HOOK(SpringBoard, handleDoubleHeightStatusBarTap:,
-         handleDoubleHeightStatusBarTap);
+    launchSafety();
 }

@@ -55,8 +55,7 @@ static typeof(wait4) *old_wait4, hook_wait4;
 static typeof(waitpid) *old_waitpid, hook_waitpid;
 static int (*old_sandbox_check)(pid_t, const char *, int type, ...);
 static int (*old_sandbox_check_audit)(void *, const char *, int type, ...);
-static int (*old_xpc_pipe_try_receive)(mach_port_t, xxpc_object_t *,
-                                       mach_port_t *, void *, size_t, int);
+static int (*old_xpc_receive_mach_msg)(mach_port_t, void *, void *, void *, xxpc_object_t *);
 
 static bool g_is_launchd;
 static pthread_mutex_t g_state_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -457,11 +456,8 @@ static pid_t hook_waitpid(pid_t pid, int *stat_loc, int options) {
     return ret;
 }
 
-static int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *requestp,
-                                     mach_port_t *recvp, void *mig_demux,
-                                     size_t msg_size, int dunno_ignored) {
-    int res = old_xpc_pipe_try_receive(port_set, requestp, recvp, mig_demux,
-                                       msg_size, dunno_ignored);
+static int hook_xpc_receive_mach_msg(mach_port_t port_set, void *unk0, void *unk1, void *unk2, xxpc_object_t *requestp) {
+    int res = old_xpc_receive_mach_msg(port_set, unk0, unk1, unk2, requestp);
     if (res)
         return res;
     xxpc_object_t request = *requestp;
@@ -526,11 +522,11 @@ static int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *reques
     }
     xxpc_release(request);
     *requestp = NULL;
-    return 0;
+    return 0xFF; // Always return an invalid value
 
 invalid:
     ib_log("invalid hook-operation='%s' message", name);
-    return res;
+    return 0xFF; // Always return an invalid value
 }
 
 static int hook_sandbox_check(pid_t pid, const char *op, int type, ...) {
@@ -631,8 +627,8 @@ static void init() {
         {"_sandbox_check_by_audit_token", hook_sandbox_check_audit, &old_sandbox_check_audit},
         {"_waitpid", hook_waitpid, &old_waitpid},
         {"_wait4", hook_wait4, &old_wait4},
-        {"_xpc_pipe_try_receive", hook_xpc_pipe_try_receive,
-         &old_xpc_pipe_try_receive},
+        {"_xpc_receive_mach_msg", hook_xpc_receive_mach_msg,
+         &old_xpc_receive_mach_msg},
     };
 
     int err = substitute_interpose_imports(im, hooks, sizeof(hooks)/sizeof(*hooks),
