@@ -66,16 +66,8 @@ static void init() {
         "com.ex.substitute.safemode-restart-springboard-plz",
         &notify_token, dispatch_get_main_queue(), ^(int tok) {
             id sb = [UIApplication sharedApplication];
-            //[sb relaunchSpringBoard];
-        CFDictionaryRef dict = (__bridge CFDictionaryRef)  @{
-            (__bridge NSString*) kCFUserNotificationAlertTopMostKey: @1,
-            (__bridge NSString*) kCFUserNotificationAlertHeaderKey: @"Title",
-            (__bridge NSString*) kCFUserNotificationAlertMessageKey: @"Message"
-        };
-        SInt32 err = 0;
-        CFUserNotificationRef notif = CFUserNotificationCreate(NULL, 0, kCFUserNotificationPlainAlertLevel, &err, dict);
-        }
-    );
+            [sb relaunchSpringBoard];
+    });
 
     #define HOOK(cls, sel, selvar) do { \
         int ret = substitute_hook_objc_message(cls, @selector(sel), \

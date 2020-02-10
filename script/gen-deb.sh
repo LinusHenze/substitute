@@ -17,7 +17,7 @@ mkdir -p $debroot/Library
 mkdir -p $debroot/System/Library/Substitute/DynamicLibraries
 cp darwin-bootstrap/safemode-ui-hook.plist out/safemode-ui-hook.dylib $debroot/System/Library/Substitute/DynamicLibraries/
 mkdir -p $debroot/System/Library/Substitute/Helpers
-cp out/{posixspawn-hook.dylib,bundle-loader.dylib,unrestrict,inject-into-launchd,substituted} $debroot/System/Library/Substitute/Helpers/
+cp out/{posixspawn-hook.dylib,bundle-loader.dylib,unrestrict,inject-into-launchd,substituted,dlopen_in_pid} $debroot/System/Library/Substitute/Helpers/
 mkdir -p $debroot/etc/rc.d
 ln -s /System/Library/Substitute/Helpers/inject-into-launchd $debroot/etc/rc.d/substitute
 mkdir -p $debroot/Library/LaunchDaemons
