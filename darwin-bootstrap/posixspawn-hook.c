@@ -625,10 +625,9 @@ static void init() {
         {"_posix_spawnp", hook_posix_spawnp, &old_posix_spawnp},
         {"_sandbox_check", hook_sandbox_check, &old_sandbox_check},
         {"_sandbox_check_by_audit_token", hook_sandbox_check_audit, &old_sandbox_check_audit},
-        {"_waitpid", hook_waitpid, &old_waitpid},
-        {"_wait4", hook_wait4, &old_wait4},
-        {"_xpc_receive_mach_msg", hook_xpc_receive_mach_msg,
-         &old_xpc_receive_mach_msg},
+        //{"_waitpid", hook_waitpid, &old_waitpid},
+        //{"_wait4", hook_wait4, &old_wait4},
+        //{"_xpc_receive_mach_msg", hook_xpc_receive_mach_msg, &old_xpc_receive_mach_msg},
     };
 
     int err = substitute_interpose_imports(im, hooks, sizeof(hooks)/sizeof(*hooks),
